@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+
+<style>
+    @import url(mapStyle.css);
+	
+	div.tooltip {   
+    position: absolute;         
+    text-align: center;         
+    width: 550px;                    
+    height: 250px;                   
+    padding: 2px;               
+    font: 20px sans-serif;      
+    background: #93C572; 
+    border: 0px;        
+    border-radius: 8px;         
+    pointer-events: none;           
+}
+</style>
+
+<script src="https://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+
+<body>
+   <!-- Table to hold the Divs -->
+   <div id="tooltip"></div>
+   <div id="map_container"></div>
+   <table border="0" cellpadding="10" style="overflow-y: scroll;">
+        <tr>
+            <td><div id="table_container" class="csvTable"></div></td>
+            
+        </tr>
+    </table>
+
+<script>
+
+// Based on http://public.johnnyotoole.fastmail.fm/county_map.html 
+
+// Based on http://bl.ocks.org/mbostock/4699541
+
+//Width and height
+var w = 600;
+var h = 600;
+var active;
+var jsonOutside;
+
+//Define map projection NB change to mercator and changed zoom etc
+var projection = d3.geo.mercator()
+    .scale(90)
+  	.center([0,20])
+    .translate([w / 2, h / 2]);
+
+//Define path generator
+var path = d3.geo.path()
+                 .projection(projection);
+
+//Create SVG element
+var svg = d3.select("#map_container")
+            .append("svg")
+            .attr("width", w)
+            .attr("height", h);
+
+// from colorbrewer (http://colorbrewer2.org/)
+var colours = ["Black","Green"]; 
+
+// setup colours for choropleth
+var colScale = d3.scale.ordinal() 
+                  .range(colours);
+
+svg.append("rect")
+    .attr("width", w)
+    .attr("height", h)
+    .on("click", reset);
+
+var g = svg.append("g");
+
+//Load in CSV data
+d3.csv("sim_pricing.csv", function (data) {
+
+    //Load in GeoJSON data
+    d3.json("world.geojson", function (json) {
+
+      // join csv data with json data and create 
+      json.features.forEach(function (d,i) {
+        data.forEach(function (e,j) {
+          if (d.properties.name === e.name) {
+            d.properties.value = +e.Price;
+			d.properties.isSupported = "No";
+			
+			if (e.is_supported === "Yes") {
+				d.properties.is_supported = "Yes";
+				d.properties.incoming_call = e.incoming_call;
+				d.properties.outgoing_call = e.outgoing_call;
+				d.properties.outgoing_call_from_to_Armadillo = e.outgoing_call_from_to_Armadillo;
+				d.properties.calls_from_Armadillo_to_Armadillo_connection = e.calls_from_Armadillo_to_Armadillo_connection;
+				d.properties.to_Armadillo = e.to_Armadillo;
+				d.properties.to_World = e.to_World;
+		  };
+			
+          };
+        })
+      })
+      
+      jsonOutside = json; // pass json to a global so tableRowClicked has access
+		
+      var columns = ["name", "price", "incoming_call", "outgoing_call", "outgoing_call_from_to_Armadillo", "calls_from_Armadillo_to_Armadillo_connection","to_Armadillo", "to_World"];
+       var table = d3.select("#table_container").append("table"),
+             thead = table.append("thead"),
+             tbody = table.append("tbody");
+     
+       // append the header row
+       thead.append("tr")
+             .selectAll("th")
+             .data(columns)
+             .enter()
+             .append("th")
+             .text(function (column) { return column; });
+     
+         // create a row for each object in the data
+        var rows = tbody.selectAll("tr")
+             .data(data)
+             .enter()
+             .append("tr");
+     
+         // create a cell in each row for each column
+        var cells = rows.selectAll("td")
+             .data(function (row) {
+                 return columns.map(function (column) {
+                     return { column: column, value: row[column] };
+                 });
+             })
+             .enter()
+             .append("td")
+             .text(function (d) { return d.value; }
+             )
+             .on("click", function (d) { tableRowClicked(d); }); // added on click eventto td         element NB you need to click on the cell with the conuty name 
+       
+        // add extents (max and min) from data results for choropleth
+        colScale.domain(d3.extent(data, function (d) { return d.Result; } )); 
+
+        //Bind data and create one path per GeoJSON feature
+        g.selectAll("path")
+           .data(json.features)
+           .enter()
+           .append("path")
+           .attr("d", path)
+           .attr("class", "feature")
+           .attr("id", function (d) { return d.properties.name; }) // added id so click could work on id which is common between the json and csv data -->
+           
+		   .on("click", function (d) { click(d); })
+		   .on("mouseover", mouseOver )
+		   .on("mouseleave", mouseLeave )
+           .style("stroke", "white")
+           <!-- .style("fill", function (d,i) { return colScale(d.properties.value); }); // fill based on colour scale --> --> -->
+		   
+		  .style("fill", function(d){
+		  
+         if(d.properties.is_supported == "Yes"){
+            return "#669900"
+          } else {
+          return "Grey" }
+       })  
+		   
+		g.append("path")
+           .data(json.features)
+           .enter()
+           .append("path")
+           .attr("class", "mesh")
+           .attr("d", path);
+    });
+
+});
+
+var tooltipDiv = d3.select("body").append("div")    
+    .attr("class", "tooltip")               
+    .style("opacity", 0);
+	
+let mouseOver = function(d) {
+     d3.select(this)
+      
+		//d.total = d.get(d.properties.isSupported);
+		tooltipDiv.transition()     
+            .duration(200)      
+            .style("opacity", .9);		
+        tooltipDiv.html(["Country: " +d.properties.name+"<br><br>"+"Incoming_call: " +d.properties.incoming_call+ "<br>"+ "Outgoing_call: " +d.properties.outgoing_call+"<br><br>"+ "Outgoing_call_from_Armadillo_to_Armadillo: " +d.properties.outgoing_call_from_to_Armadillo+ "<br>"+ "calls_from_Armadillo_to_Armadillo_connection: "+d.properties.calls_from_Armadillo_to_Armadillo_connection+"<br><br>"+"To_Armadillo: "+d.properties.to_Armadillo+"<br>"+"To_World: "+d.properties.to_World])  
+            .style("left", (d3.event.pageX) + "px")     
+            .style("top", (d3.event.pageY - 28) + "px");    
+		};
+
+let mouseLeave = function(d) {
+       
+     d3.selectAll("this")
+      tooltipDiv.transition()     
+            .duration(20)      
+            .style("opacity", 0)
+			.style("stroke", "transparent")
+      }
+
+function click(d) {
+
+    if (active === d) return reset();
+   g.selectAll(".active").classed("active", false);
+   d3.select("#"+d.properties.name).classed("active", active = d); // changed selection to id
+   
+   var b = path.bounds(d);
+
+   g.transition().duration(750).attr("transform",
+       "translate(" + projection.translate() + ")"
+       + "scale(" + .95 / Math.max((b[1][0] - b[0][0]) / w, (b[1][1] - b[0][1]) / h) + ")"
+       + "translate(" + -(b[1][0] + b[0][0]) / 2 + "," + -(b[1][1] + b[0][1]) / 2 + ")");
+}
+
+function reset() {
+    g.selectAll(".active").classed("active", active = false);
+    g.transition().duration(750).attr("transform", "");
+}
+
+function tableRowClicked(x) {
+
+    jsonOutside.features.forEach(function (d) { // loop through json data to match td entry
+        if (x.value === d.properties.name) {
+            var county = d;
+            click(d); // pass json element that matches td data to click 
+        };
+    })
+}
+
+
+
+</script>
+</body>
+</html>
